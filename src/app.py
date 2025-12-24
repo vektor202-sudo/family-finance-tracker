@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict
 
+import json
 import pandas as pd
 import plotly.express as px
 import streamlit as st
@@ -15,19 +16,29 @@ st.markdown(
     """
     <style>
         .stApp {
-            background-color: #f7f7fb;
+            background-color: #f2efe9;
         }
         h1, h2, h3, h4, h5 {
-            color: #3f3f4a;
+            color: #3b3b3f;
+        }
+        p, span, div, label {
+            color: #4a4a4f;
         }
         .stButton > button {
-            background-color: #dfe7f7;
-            color: #2b2b35;
+            background-color: #e0e0d8;
+            color: #2f2f33;
             border: none;
         }
         .stButton > button:hover {
-            background-color: #cfdaf2;
-            color: #2b2b35;
+            background-color: #d4d4cb;
+            color: #2f2f33;
+        }
+        .goal-card {
+            background-color: #ffffff;
+            border: 1px solid #e1ded7;
+            border-radius: 12px;
+            padding: 16px;
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
         }
     </style>
     """,
@@ -77,32 +88,48 @@ def allocate_income(
     }
 
 
+def load_settings(settings_path: Path) -> Dict[str, int]:
+    """Load saved budget settings or return defaults."""
+    defaults = {
+        "expenses_percent": 70,
+        "investments_percent": 20,
+        "savings_percent": 10,
+    }
+    if not settings_path.exists():
+        return defaults
+    try:
+        raw_data = json.loads(settings_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return defaults
+    return {
+        "expenses_percent": int(raw_data.get("expenses_percent", defaults["expenses_percent"])),
+        "investments_percent": int(
+            raw_data.get("investments_percent", defaults["investments_percent"])
+        ),
+        "savings_percent": int(raw_data.get("savings_percent", defaults["savings_percent"])),
+    }
+
+
+def save_settings(settings_path: Path, settings: Dict[str, int]) -> None:
+    """Persist budget settings to disk."""
+    settings_path.write_text(
+        json.dumps(settings, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
 st.title("Семейный финансовый трекер")
 
 main_tab, history_tab, analytics_tab, goals_tab, income_tab = st.tabs(
-    ["Главная", "История расходов", "Аналитика", "Цели", "Доходы"]
+    ["Главная", "История расходов", "Статистика", "Цели", "Доходы"]
 )
 
 expenses_file = Path(__file__).parent / "expenses.csv"
 goals_file = Path(__file__).parent / "goals.csv"
 income_file = Path(__file__).parent / "income.csv"
-budget_settings_file = Path(__file__).parent / "budget_settings.csv"
+settings_file = Path(__file__).parent / "settings.json"
 
-default_budget_settings = {
-    "expenses_percent": 70,
-    "investments_percent": 20,
-    "savings_percent": 10,
-}
-
-if budget_settings_file.exists():
-    budget_settings_df = pd.read_csv(budget_settings_file)
-    if not budget_settings_df.empty:
-        latest_settings = budget_settings_df.iloc[-1].to_dict()
-        default_budget_settings = {
-            "expenses_percent": int(latest_settings.get("expenses_percent", 70)),
-            "investments_percent": int(latest_settings.get("investments_percent", 20)),
-            "savings_percent": int(latest_settings.get("savings_percent", 10)),
-        }
+default_budget_settings = load_settings(settings_file)
 if expenses_file.exists():
     expenses_df = pd.read_csv(expenses_file)
 else:
@@ -129,6 +156,17 @@ else:
     income_df = pd.DataFrame(columns=["month", "year", "amount", "category"])
     income_df.to_csv(income_file, index=False)
 
+
+def update_settings_from_state() -> None:
+    save_settings(
+        settings_file,
+        {
+            "expenses_percent": int(st.session_state.get("expenses_percent", 70)),
+            "investments_percent": int(st.session_state.get("investments_percent", 20)),
+            "savings_percent": int(st.session_state.get("savings_percent", 10)),
+        },
+    )
+
 with main_tab:
     st.subheader("Планирование бюджета")
     total_income = st.number_input(
@@ -143,18 +181,24 @@ with main_tab:
         min_value=0,
         max_value=100,
         value=default_budget_settings["expenses_percent"],
+        key="expenses_percent",
+        on_change=update_settings_from_state,
     )
     investments_percent = st.slider(
         "Инвестиции (%)",
         min_value=0,
         max_value=100,
         value=default_budget_settings["investments_percent"],
+        key="investments_percent",
+        on_change=update_settings_from_state,
     )
     savings_percent = st.slider(
         "Накопления (%)",
         min_value=0,
         max_value=100,
         value=default_budget_settings["savings_percent"],
+        key="savings_percent",
+        on_change=update_settings_from_state,
     )
     total_percent = expenses_percent + investments_percent + savings_percent
     if total_percent != 100:
@@ -172,22 +216,14 @@ with main_tab:
             savings_percent,
             investments_percent,
         )
-        settings_snapshot = pd.DataFrame(
-            [
-                {
-                    "expenses_percent": expenses_percent,
-                    "investments_percent": investments_percent,
-                    "savings_percent": savings_percent,
-                }
-            ]
+        save_settings(
+            settings_file,
+            {
+                "expenses_percent": int(expenses_percent),
+                "investments_percent": int(investments_percent),
+                "savings_percent": int(savings_percent),
+            },
         )
-        if budget_settings_file.exists():
-            existing_settings = pd.read_csv(budget_settings_file)
-            settings_snapshot = pd.concat(
-                [existing_settings, settings_snapshot],
-                ignore_index=True,
-            )
-        settings_snapshot.to_csv(budget_settings_file, index=False)
         expenses_col, savings_col, investments_col = st.columns(3)
 
         with expenses_col:
@@ -278,14 +314,88 @@ with history_tab:
         )
         for (year, month), group in month_groups:
             st.subheader(f"{month} {int(year)}")
-            st.dataframe(
-                group[["date", "amount", "category"]],
+            editable_group = group[["date", "amount", "category"]].copy()
+            editable_group["Удалить"] = False
+            updated_group = st.data_editor(
+                editable_group,
                 use_container_width=True,
+                hide_index=True,
+                key=f"expenses_editor_{year}_{month}",
             )
+            if st.button("Удалить выбранные", key=f"delete_{year}_{month}"):
+                delete_mask = updated_group["Удалить"]
+                remaining_group = updated_group[~delete_mask].drop(columns=["Удалить"])
+                remaining_expenses = expenses_view.drop(group.index)
+                merged_remaining = pd.concat(
+                    [remaining_group, remaining_expenses],
+                    ignore_index=True,
+                )
+                merged_remaining = merged_remaining.drop(
+                    columns=["month", "year"], errors="ignore"
+                )
+                merged_remaining.to_csv(expenses_file, index=False)
+                expenses_df = merged_remaining
+                st.success("Выбранные расходы удалены.")
             st.divider()
 
 with analytics_tab:
-    st.subheader("Аналитика расходов")
+    st.subheader("Статистика")
+    if not income_df.empty or not expenses_df.empty:
+        month_lookup = {name: idx + 1 for idx, name in enumerate(MONTH_NAMES)}
+        income_view = income_df.copy()
+        income_view["month_number"] = income_view["month"].map(month_lookup)
+        income_view["year"] = income_view["year"].astype(int)
+        income_summary = (
+            income_view.groupby(["year", "month_number"], as_index=False)["amount"].sum()
+            if not income_view.empty
+            else pd.DataFrame(columns=["year", "month_number", "amount"])
+        )
+        income_summary = income_summary.rename(columns={"amount": "income"})
+
+        expenses_view = expenses_df.copy()
+        if not expenses_view.empty:
+            expenses_view["date"] = pd.to_datetime(expenses_view["date"])
+            expenses_view["month_number"] = expenses_view["date"].dt.month
+            expenses_view["year"] = expenses_view["date"].dt.year
+        expenses_summary = (
+            expenses_view.groupby(["year", "month_number"], as_index=False)["amount"].sum()
+            if not expenses_view.empty
+            else pd.DataFrame(columns=["year", "month_number", "amount"])
+        )
+        expenses_summary = expenses_summary.rename(columns={"amount": "expenses"})
+
+        monthly_summary = pd.merge(
+            income_summary,
+            expenses_summary,
+            on=["year", "month_number"],
+            how="outer",
+        ).fillna(0)
+        if not monthly_summary.empty:
+            monthly_summary = monthly_summary.dropna(subset=["month_number"])
+            monthly_summary["month"] = monthly_summary["month_number"].apply(
+                lambda month: MONTH_NAMES[int(month) - 1]
+            )
+            monthly_summary = monthly_summary.sort_values(["year", "month_number"])
+            line_chart = px.line(
+                monthly_summary,
+                x="month",
+                y=["income", "expenses"],
+                color_discrete_sequence=["#5c7c89", "#c06c5d"],
+                markers=True,
+                labels={"value": "Сумма", "month": "Месяц", "variable": "Показатель"},
+            )
+            line_chart.update_layout(margin=dict(t=10, b=10, l=10, r=10))
+            st.plotly_chart(line_chart, use_container_width=True)
+
+            latest_period = monthly_summary.iloc[-1]
+            expense_limit = latest_period["income"] * expenses_percent / 100
+            limit_left = expense_limit - latest_period["expenses"]
+            st.metric(
+                "Остаток лимита на месяц",
+                f"{limit_left:.2f}",
+                help="Доходы * %Расходов - Реальные траты",
+            )
+
     if not expenses_df.empty:
         expenses_summary = expenses_df.groupby("category", as_index=False)["amount"].sum()
         pie_chart = px.pie(
@@ -331,20 +441,39 @@ with goals_tab:
         st.info("Добавьте цели, чтобы видеть прогресс.")
     else:
         st.markdown("#### Список целей")
+        savings_income_total = 0.0
+        if not income_df.empty:
+            savings_income_total = float(
+                income_df.loc[income_df["category"] == "Накопления", "amount"].sum()
+            )
+        allocation_per_goal = (
+            savings_income_total / len(goals_df.index) if len(goals_df.index) else 0.0
+        )
         for _, goal in goals_df.iterrows():
             goal_title = goal.get("name") or "Цель без названия"
             target_amount = float(goal.get("target_amount", 0.0) or 0.0)
-            saved_amount = float(goal.get("saved_amount", 0.0) or 0.0)
-            progress = min(saved_amount / target_amount, 1.0) if target_amount > 0 else 0.0
+            manual_saved = float(goal.get("saved_amount", 0.0) or 0.0)
+            allocated_saved = manual_saved + allocation_per_goal
+            progress = (
+                min(allocated_saved / target_amount, 1.0) if target_amount > 0 else 0.0
+            )
             percent = progress * 100
             with st.container():
-                st.markdown(f"**{goal_title}**")
+                st.markdown(
+                    f"<div class='goal-card'><strong>{goal_title}</strong>",
+                    unsafe_allow_html=True,
+                )
                 st.progress(progress, text=f"Достигнуто: {percent:.1f}%")
                 st.caption(
-                    f"Накоплено: {saved_amount:.2f} из {target_amount:.2f}"
+                    f"Накоплено: {allocated_saved:.2f} из {target_amount:.2f}"
                     if target_amount > 0
                     else "Введите сумму цели, чтобы увидеть прогресс."
                 )
+                if savings_income_total > 0:
+                    st.caption(
+                        f"Авто-накопления распределены: {allocation_per_goal:.2f}"
+                    )
+                st.markdown("</div>", unsafe_allow_html=True)
 
 with income_tab:
     st.subheader("Планирование доходов")
@@ -375,7 +504,7 @@ with income_tab:
         )
         income_category = st.selectbox(
             "Категория",
-            ["Зарплата Мужа", "Зарплата Жены", "Инвестиции"],
+            ["Зарплата Мужа", "Зарплата Жены", "Инвестиции", "Накопления"],
         )
         submit_income = st.form_submit_button("Сохранить доход")
 
