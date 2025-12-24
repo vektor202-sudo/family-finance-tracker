@@ -69,49 +69,52 @@ default_budget_settings = load_settings(settings_file)
 
 st.set_page_config(page_title="Семейный бюджет", layout="wide")
 
+for key, value in default_budget_settings.items():
+    if key not in st.session_state:
+        st.session_state[key] = value
+
 st.markdown(
     """
     <style>
         .stApp {
-            background-color: #f2efe9;
+            background-color: #f8f9fa;
+            font-family: "Segoe UI", "Inter", "Helvetica Neue", Arial, sans-serif;
         }
         h1, h2, h3, h4, h5 {
-            color: #3b3b3f;
+            color: #2f3a44;
         }
         p, span, div, label {
-            color: #4a4a4f;
+            color: #3c4854;
         }
         .stButton > button {
-            background-color: #e0e0d8;
-            color: #2f2f33;
+            background-color: #6b7c93;
+            color: #f8f9fa;
             border: none;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(107, 124, 147, 0.2);
         }
         .stButton > button:hover {
-            background-color: #d4d4cb;
-            color: #2f2f33;
+            background-color: #5e6f86;
+            color: #ffffff;
         }
         .goal-card {
             background-color: #ffffff;
-            border: 1px solid #e1ded7;
+            border: 1px solid #e7eaee;
             border-radius: 12px;
             padding: 16px;
-            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+            box-shadow: 0 8px 18px rgba(31, 45, 61, 0.08);
         }
         .chart-title {
             text-align: center;
             font-size: 28px;
             font-weight: 600;
             margin: 12px 0 16px;
-            color: #3b3b3f;
+            color: #2f3a44;
         }
     </style>
     """,
     unsafe_allow_html=True,
 )
-
-for key, value in default_budget_settings.items():
-    if key not in st.session_state:
-        st.session_state[key] = value
 
 MONTH_NAMES = [
     "Январь",
@@ -129,12 +132,12 @@ MONTH_NAMES = [
 ]
 
 CHART_COLORS = [
-    "#5f7c8a",
-    "#8aa39b",
-    "#b8bfa3",
-    "#d4c8b8",
-    "#c18b7a",
-    "#8c6f6a",
+    "#5e6f86",
+    "#7c8fa3",
+    "#8da394",
+    "#a7b4a8",
+    "#b8c4b6",
+    "#cbd1c7",
 ]
 
 INCOME_LEGEND_CATEGORIES = ["Зарплата Мужа", "Зарплата Жены", "Инвестиции"]
@@ -244,7 +247,7 @@ else:
         income_df["year"] = income_df["date"].dt.year
 
 
-def update_settings_from_state() -> None:
+def update_settings() -> None:
     save_settings(
         settings_file,
         {
@@ -269,7 +272,7 @@ with main_tab:
         max_value=100,
         value=int(st.session_state["expenses_percent"]),
         key="expenses_percent",
-        on_change=update_settings_from_state,
+        on_change=update_settings,
     )
     investments_percent = st.slider(
         "Инвестиции (%)",
@@ -277,7 +280,7 @@ with main_tab:
         max_value=100,
         value=int(st.session_state["investments_percent"]),
         key="investments_percent",
-        on_change=update_settings_from_state,
+        on_change=update_settings,
     )
     savings_percent = st.slider(
         "Накопления (%)",
@@ -285,7 +288,7 @@ with main_tab:
         max_value=100,
         value=int(st.session_state["savings_percent"]),
         key="savings_percent",
-        on_change=update_settings_from_state,
+        on_change=update_settings,
     )
     total_percent = expenses_percent + investments_percent + savings_percent
     if total_percent != 100:
@@ -393,6 +396,14 @@ with main_tab:
 
 with history_tab:
     st.subheader("История расходов")
+    if st.button("Очистить последнюю запись", key="clear_last_expense"):
+        if expenses_df.empty:
+            st.info("Нет расходов для удаления.")
+        else:
+            updated_expenses = expenses_df.iloc[:-1].copy()
+            updated_expenses.to_csv(expenses_file, index=False)
+            expenses_df = updated_expenses
+            st.success("Последняя запись о расходе удалена.")
     if expenses_df.empty:
         st.info("Добавьте расходы, чтобы увидеть историю.")
     else:
@@ -409,7 +420,7 @@ with history_tab:
             expenses_view.groupby(["year", "month"], sort=False)
         )
         for (year, month), group in month_groups:
-            st.subheader(f"{month} {int(year)}")
+            st.markdown(f"### {month} {int(year)}")
             editable_group = group[["date", "amount", "category"]].copy()
             editable_group["Удалить"] = False
             updated_group = st.data_editor(
@@ -687,7 +698,7 @@ with income_tab:
         income_df = updated_income
         st.success("Доход сохранен!")
 
-    if st.button("Отменить последнюю запись", key="undo_last_income"):
+    if st.button("Очистить последнюю запись", key="undo_last_income"):
         if income_df.empty:
             st.info("Нет доходов для удаления.")
         else:
@@ -710,7 +721,7 @@ with income_tab:
         )
         income_groups = income_view.groupby(["year", "month"], sort=False)
         for (year, month), group in income_groups:
-            st.subheader(f"{month} {int(year)}")
+            st.markdown(f"### {month} {int(year)}")
             st.dataframe(
                 group[["amount", "category"]],
                 use_container_width=True,
