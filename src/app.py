@@ -55,3 +55,24 @@ if st.button("Распределить бюджет"):
         st.write(f"{distribution['investments']:.2f}")
 
     st.caption("Данные рассчитаны на основе вашей структуры в docs/data_structure.md")
+
+st.subheader("Добавить новый расход")
+with st.form("Добавить новый расход"):
+    expense_date = st.date_input("Дата")
+    expense_amount = st.number_input(
+        "Сумма",
+        min_value=0.0,
+        step=100.0,
+        format="%.2f",
+    )
+    expense_category = st.selectbox(
+        "Категория",
+        ["Продукты", "Жилье", "Транспорт", "Развлечения", "Бытовые", "Другое"],
+    )
+    submit_expense = st.form_submit_button("Сохранить расход")
+
+if submit_expense:
+    st.success("Расход сохранен!")
+    st.write("Дата:", expense_date)
+    st.write("Сумма:", f"{expense_amount:.2f}")
+    st.write("Категория:", expense_category)
