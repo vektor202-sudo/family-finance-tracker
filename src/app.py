@@ -12,6 +12,99 @@ import streamlit as st
 from pandas.errors import EmptyDataError
 
 
+def inject_custom_css() -> None:
+    """Inject custom CSS styles into the Streamlit app."""
+    st.markdown(
+        """
+        <style>
+            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+            .stApp {
+                background-color: #f0f2f6;
+                font-family: "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+            }
+            h1, h2, h3, h4, h5 {
+                color: #2f3a44;
+                letter-spacing: 0.2px;
+            }
+            p, span, div, label {
+                color: #3c4854;
+            }
+            .stButton > button {
+                background-color: #6b7c93;
+                color: #f8f9fa;
+                border: none;
+                border-radius: 8px;
+                box-shadow: 0 4px 12px rgba(107, 124, 147, 0.2);
+            }
+            .stButton > button:hover {
+                background-color: #5e6f86;
+                color: #ffffff;
+            }
+            .card-surface {
+                background-color: #ffffff;
+                border-radius: 10px;
+                padding: 18px;
+                box-shadow: 0 6px 14px rgba(31, 45, 61, 0.08);
+                border: 1px solid #e7eaee;
+            }
+            .goal-card {
+                background-color: #ffffff;
+                border: 1px solid #e7eaee;
+                border-radius: 10px;
+                padding: 16px;
+                box-shadow: 0 4px 12px rgba(31, 45, 61, 0.08);
+            }
+            .chart-title {
+                text-align: center;
+                font-size: 26px;
+                font-weight: 600;
+                margin: 12px 0 16px;
+                color: #2f3a44;
+            }
+            .result-grid {
+                display: grid;
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+                gap: 16px;
+            }
+            .result-item {
+                background-color: #f7f9fc;
+                border-radius: 10px;
+                padding: 12px;
+                text-align: center;
+                border: 1px solid #edf0f4;
+            }
+            .result-title {
+                font-size: 14px;
+                font-weight: 600;
+                color: #5b6b7b;
+                margin-bottom: 6px;
+            }
+            .result-value {
+                font-size: 20px;
+                font-weight: 600;
+                color: #2f3a44;
+            }
+            .result-caption {
+                font-size: 13px;
+                color: #6a7786;
+                margin-top: 4px;
+            }
+            .result-summary {
+                margin-top: 14px;
+                font-size: 14px;
+                color: #4a5663;
+            }
+            .result-note {
+                margin-top: 10px;
+                font-size: 12px;
+                color: #7a8794;
+            }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def load_settings(settings_path: Path) -> tuple[Dict[str, int | float], bool]:
     """Load saved budget settings or return defaults."""
     defaults = {
@@ -85,55 +178,13 @@ settings_file = Path(__file__).parent / "settings.json"
 default_budget_settings, settings_need_save = load_settings(settings_file)
 
 st.set_page_config(page_title="Семейный бюджет", layout="wide")
+inject_custom_css()
 
 for key, value in default_budget_settings.items():
     if key not in st.session_state:
         st.session_state[key] = value
 if settings_need_save:
     save_settings()
-
-st.markdown(
-    """
-    <style>
-        .stApp {
-            background-color: #f8f9fa;
-            font-family: "Segoe UI", "Inter", "Helvetica Neue", Arial, sans-serif;
-        }
-        h1, h2, h3, h4, h5 {
-            color: #2f3a44;
-        }
-        p, span, div, label {
-            color: #3c4854;
-        }
-        .stButton > button {
-            background-color: #6b7c93;
-            color: #f8f9fa;
-            border: none;
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(107, 124, 147, 0.2);
-        }
-        .stButton > button:hover {
-            background-color: #5e6f86;
-            color: #ffffff;
-        }
-        .goal-card {
-            background-color: #ffffff;
-            border: 1px solid #e7eaee;
-            border-radius: 12px;
-            padding: 16px;
-            box-shadow: 0 8px 18px rgba(31, 45, 61, 0.08);
-        }
-        .chart-title {
-            text-align: center;
-            font-size: 28px;
-            font-weight: 600;
-            margin: 12px 0 16px;
-            color: #2f3a44;
-        }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
 
 MONTH_NAMES = [
     "Январь",
@@ -151,12 +202,12 @@ MONTH_NAMES = [
 ]
 
 CHART_COLORS = [
-    "#5e6f86",
-    "#7c8fa3",
-    "#8da394",
-    "#a7b4a8",
-    "#b8c4b6",
-    "#cbd1c7",
+    "#A7C7E7",
+    "#F4B6C2",
+    "#CDB4DB",
+    "#B5EAD7",
+    "#FFE5B4",
+    "#DDEBF7",
 ]
 
 INCOME_LEGEND_CATEGORIES = ["Зарплата Мужа", "Зарплата Жены", "Инвестиции"]
@@ -189,10 +240,10 @@ def allocate_income(
     }
 
 
-st.title("Семейный финансовый трекер")
+st.title("🏠 Семейный финансовый трекер")
 
 main_tab, history_tab, analytics_tab, goals_tab, income_tab = st.tabs(
-    ["Главная", "История расходов", "Статистика", "Цели", "Доходы"]
+    ["🏡 Главная", "🧾 История расходов", "📊 Статистика", "🎯 Цели", "💰 Доходы"]
 )
 
 expenses_file = Path(__file__).parent / "expenses.csv"
@@ -267,37 +318,39 @@ else:
 
 
 with main_tab:
-    st.subheader("Планирование бюджета")
-    total_income = st.number_input(
-        "Общая сумма дохода",
-        min_value=0.0,
-        step=1000.0,
-        format="%.2f",
-        key="total_income_plan",
-        on_change=save_settings,
-    )
-    st.markdown("#### Проценты распределения")
-    expenses_percent = st.slider(
-        "Расходы (%)",
-        min_value=0,
-        max_value=100,
-        key="expenses_percent",
-        on_change=save_settings,
-    )
-    investments_percent = st.slider(
-        "Инвестиции (%)",
-        min_value=0,
-        max_value=100,
-        key="investments_percent",
-        on_change=save_settings,
-    )
-    savings_percent = st.slider(
-        "Накопления (%)",
-        min_value=0,
-        max_value=100,
-        key="savings_percent",
-        on_change=save_settings,
-    )
+    st.subheader("📌 Планирование бюджета")
+    planning_col, results_col = st.columns([1, 1])
+    with planning_col:
+        total_income = st.number_input(
+            "Общая сумма дохода",
+            min_value=0.0,
+            step=1000.0,
+            format="%.2f",
+            key="total_income_plan",
+            on_change=save_settings,
+        )
+        st.markdown("#### Проценты распределения")
+        expenses_percent = st.slider(
+            "Расходы (%)",
+            min_value=0,
+            max_value=100,
+            key="expenses_percent",
+            on_change=save_settings,
+        )
+        investments_percent = st.slider(
+            "Инвестиции (%)",
+            min_value=0,
+            max_value=100,
+            key="investments_percent",
+            on_change=save_settings,
+        )
+        savings_percent = st.slider(
+            "Накопления (%)",
+            min_value=0,
+            max_value=100,
+            key="savings_percent",
+            on_change=save_settings,
+        )
     total_percent = expenses_percent + investments_percent + savings_percent
     if total_percent != 100:
         st.warning(
@@ -311,21 +364,6 @@ with main_tab:
             savings_percent,
             investments_percent,
         )
-        expenses_col, savings_col, investments_col = st.columns(3)
-
-        with expenses_col:
-            st.metric("Расходы", f"{distribution['expenses']:.2f} ₽")
-            st.caption(f"{expenses_percent}%")
-
-        with savings_col:
-            st.metric("Накопления", f"{distribution['savings']:.2f} ₽")
-            st.caption(f"{savings_percent}%")
-
-        with investments_col:
-            st.metric("Инвестиции", f"{distribution['investments']:.2f} ₽")
-            st.caption(f"{investments_percent}%")
-
-        st.caption("Данные рассчитаны на основе вашей структуры в docs/data_structure.md")
         if not expenses_df.empty:
             current_month = pd.Timestamp.today().month
             current_year = pd.Timestamp.today().year
@@ -339,15 +377,44 @@ with main_tab:
             spent_amount = 0.0
         expenses_limit = distribution["expenses"]
         remaining_amount = expenses_limit - spent_amount
-        st.markdown(
-            "Выделено на расходы в этом месяце: "
-            f"{expenses_limit:.2f} руб. Потрачено по факту: "
-            f"{spent_amount:.2f} руб. Остаток: {remaining_amount:.2f} руб."
-        )
+        with results_col:
+            result_summary = (
+                "Выделено на расходы в этом месяце: "
+                f"{expenses_limit:.2f} руб. Потрачено по факту: "
+                f"{spent_amount:.2f} руб. Остаток: {remaining_amount:.2f} руб."
+            )
+            st.markdown(
+                f"""
+                <div class="card-surface">
+                    <div class="result-grid">
+                        <div class="result-item">
+                            <div class="result-title">Расходы</div>
+                            <div class="result-value">{distribution['expenses']:.2f} ₽</div>
+                            <div class="result-caption">{expenses_percent}%</div>
+                        </div>
+                        <div class="result-item">
+                            <div class="result-title">Накопления</div>
+                            <div class="result-value">{distribution['savings']:.2f} ₽</div>
+                            <div class="result-caption">{savings_percent}%</div>
+                        </div>
+                        <div class="result-item">
+                            <div class="result-title">Инвестиции</div>
+                            <div class="result-value">{distribution['investments']:.2f} ₽</div>
+                            <div class="result-caption">{investments_percent}%</div>
+                        </div>
+                    </div>
+                    <div class="result-summary">{result_summary}</div>
+                    <div class="result-note">
+                        Данные рассчитаны на основе вашей структуры в docs/data_structure.md
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
     elif total_income > 0 and total_percent != 100:
         st.error("Исправьте проценты, чтобы они суммировались до 100%.")
 
-    st.subheader("Добавить новый расход")
+    st.subheader("🧾 Добавить новый расход")
     with st.form("Добавить новый расход"):
         expense_date = st.date_input("Дата")
         expense_amount = st.number_input(
@@ -402,7 +469,7 @@ with main_tab:
             st.success("Последняя запись о расходе удалена.")
 
 with history_tab:
-    st.subheader("История расходов")
+    st.subheader("🧾 История расходов")
     if st.button("Очистить последнюю запись", key="clear_last_expense"):
         if expenses_df.empty:
             st.info("Нет расходов для удаления.")
@@ -452,7 +519,7 @@ with history_tab:
                 st.divider()
 
 with analytics_tab:
-    st.subheader("Статистика")
+    st.subheader("📊 Статистика")
     month_lookup = {name: idx + 1 for idx, name in enumerate(MONTH_NAMES)}
     income_view = income_df.copy()
     if not income_view.empty:
@@ -514,7 +581,7 @@ with analytics_tab:
         )
         income_by_category = income_by_category.sort_values(["year", "month_number"])
         st.markdown(
-            "<div class='chart-title'>Доходы семьи</div>",
+            "<div class='chart-title'>💵 Доходы семьи</div>",
             unsafe_allow_html=True,
         )
         income_chart = px.line(
@@ -523,6 +590,7 @@ with analytics_tab:
             y="amount",
             color="category",
             markers=True,
+            template="plotly_white",
             color_discrete_sequence=CHART_COLORS,
             labels={"amount": "Сумма", "month_label": "Месяц", "category": "Категория"},
             category_orders={"category": INCOME_LEGEND_CATEGORIES},
@@ -535,7 +603,7 @@ with analytics_tab:
     if not expenses_view.empty:
         expenses_summary = expenses_view.groupby("category", as_index=False)["amount"].sum()
         st.markdown(
-            "<div class='chart-title'>Расходы текущего месяца</div>",
+            "<div class='chart-title'>🧾 Расходы текущего месяца</div>",
             unsafe_allow_html=True,
         )
         pie_chart = px.pie(
@@ -543,6 +611,7 @@ with analytics_tab:
             values="amount",
             names="category",
             hole=0.35,
+            template="plotly_white",
             color_discrete_sequence=CHART_COLORS,
         )
         pie_chart.update_traces(textposition="inside", textinfo="percent+label")
@@ -569,13 +638,14 @@ with analytics_tab:
         lambda month: MONTH_NAMES[int(month) - 1]
     )
     st.markdown(
-        "<div class='chart-title'>Динамика за год</div>",
+        "<div class='chart-title'>📈 Динамика за год</div>",
         unsafe_allow_html=True,
     )
     yearly_chart = px.bar(
         yearly_expenses,
         x="month",
         y="total",
+        template="plotly_white",
         color_discrete_sequence=[CHART_COLORS[0]],
         labels={"total": "Сумма", "month": "Месяц"},
     )
@@ -583,7 +653,7 @@ with analytics_tab:
     st.plotly_chart(yearly_chart, use_container_width=True)
 
 with goals_tab:
-    st.subheader("Цели")
+    st.subheader("🎯 Цели")
     with st.form("Добавить цель"):
         goal_name = st.text_input("Название цели")
         goal_target = st.number_input(
@@ -612,7 +682,7 @@ with goals_tab:
     if goals_df.empty:
         st.info("Добавьте цели, чтобы видеть прогресс.")
     else:
-        st.markdown("#### Список целей")
+        st.markdown("#### 🎯 Список целей")
         savings_income_total = 0.0
         if not income_df.empty:
             savings_income_total = float(
@@ -648,7 +718,7 @@ with goals_tab:
                 st.markdown("</div>", unsafe_allow_html=True)
 
 with income_tab:
-    st.subheader("Планирование доходов")
+    st.subheader("💰 Планирование доходов")
     income_month = st.selectbox(
         "Месяц",
         [
@@ -716,7 +786,7 @@ with income_tab:
     if income_df.empty:
         st.info("Добавьте доходы, чтобы видеть план.")
     else:
-        st.markdown("#### План доходов")
+        st.markdown("#### 💵 План доходов")
         income_view = income_df.copy()
         income_view["month_number"] = income_view["month"].map(
             {name: idx + 1 for idx, name in enumerate(MONTH_NAMES)}
