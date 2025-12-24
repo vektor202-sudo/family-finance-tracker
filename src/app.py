@@ -9,6 +9,46 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+st.set_page_config(page_title="Семейный бюджет", layout="wide")
+
+st.markdown(
+    """
+    <style>
+        .stApp {
+            background-color: #f7f7fb;
+        }
+        h1, h2, h3, h4, h5 {
+            color: #3f3f4a;
+        }
+        .stButton > button {
+            background-color: #dfe7f7;
+            color: #2b2b35;
+            border: none;
+        }
+        .stButton > button:hover {
+            background-color: #cfdaf2;
+            color: #2b2b35;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+MONTH_NAMES = [
+    "Январь",
+    "Февраль",
+    "Март",
+    "Апрель",
+    "Май",
+    "Июнь",
+    "Июль",
+    "Август",
+    "Сентябрь",
+    "Октябрь",
+    "Ноябрь",
+    "Декабрь",
+]
+
 
 def allocate_income(
     total_income: float,
@@ -46,10 +86,36 @@ main_tab, history_tab, analytics_tab, goals_tab, income_tab = st.tabs(
 expenses_file = Path(__file__).parent / "expenses.csv"
 goals_file = Path(__file__).parent / "goals.csv"
 income_file = Path(__file__).parent / "income.csv"
+budget_settings_file = Path(__file__).parent / "budget_settings.csv"
+
+default_budget_settings = {
+    "expenses_percent": 70,
+    "investments_percent": 20,
+    "savings_percent": 10,
+}
+
+if budget_settings_file.exists():
+    budget_settings_df = pd.read_csv(budget_settings_file)
+    if not budget_settings_df.empty:
+        latest_settings = budget_settings_df.iloc[-1].to_dict()
+        default_budget_settings = {
+            "expenses_percent": int(latest_settings.get("expenses_percent", 70)),
+            "investments_percent": int(latest_settings.get("investments_percent", 20)),
+            "savings_percent": int(latest_settings.get("savings_percent", 10)),
+        }
 if expenses_file.exists():
     expenses_df = pd.read_csv(expenses_file)
 else:
     expenses_df = pd.DataFrame(columns=["date", "amount", "category"])
+
+if not expenses_df.empty:
+    expenses_df["date"] = pd.to_datetime(expenses_df["date"])
+    if "month" not in expenses_df.columns:
+        expenses_df["month"] = expenses_df["date"].dt.month.apply(
+            lambda month: MONTH_NAMES[month - 1]
+        )
+    if "year" not in expenses_df.columns:
+        expenses_df["year"] = expenses_df["date"].dt.year
 
 if goals_file.exists():
     goals_df = pd.read_csv(goals_file)
@@ -72,11 +138,24 @@ with main_tab:
         format="%.2f",
     )
     st.markdown("#### Проценты распределения")
-    expenses_percent = st.slider("Расходы (%)", min_value=0, max_value=100, value=70)
-    investments_percent = st.slider(
-        "Инвестиции (%)", min_value=0, max_value=100, value=20
+    expenses_percent = st.slider(
+        "Расходы (%)",
+        min_value=0,
+        max_value=100,
+        value=default_budget_settings["expenses_percent"],
     )
-    savings_percent = st.slider("Накопления (%)", min_value=0, max_value=100, value=10)
+    investments_percent = st.slider(
+        "Инвестиции (%)",
+        min_value=0,
+        max_value=100,
+        value=default_budget_settings["investments_percent"],
+    )
+    savings_percent = st.slider(
+        "Накопления (%)",
+        min_value=0,
+        max_value=100,
+        value=default_budget_settings["savings_percent"],
+    )
     total_percent = expenses_percent + investments_percent + savings_percent
     if total_percent != 100:
         st.warning(
@@ -93,6 +172,22 @@ with main_tab:
             savings_percent,
             investments_percent,
         )
+        settings_snapshot = pd.DataFrame(
+            [
+                {
+                    "expenses_percent": expenses_percent,
+                    "investments_percent": investments_percent,
+                    "savings_percent": savings_percent,
+                }
+            ]
+        )
+        if budget_settings_file.exists():
+            existing_settings = pd.read_csv(budget_settings_file)
+            settings_snapshot = pd.concat(
+                [existing_settings, settings_snapshot],
+                ignore_index=True,
+            )
+        settings_snapshot.to_csv(budget_settings_file, index=False)
         expenses_col, savings_col, investments_col = st.columns(3)
 
         with expenses_col:
@@ -108,6 +203,16 @@ with main_tab:
             st.write(f"{distribution['investments']:.2f}")
 
         st.caption("Данные рассчитаны на основе вашей структуры в docs/data_structure.md")
+        total_spent = float(expenses_df["amount"].sum()) if not expenses_df.empty else 0.0
+        expenses_limit = distribution["expenses"]
+        if total_spent > expenses_limit:
+            indicator = (
+                f"<span style='color:#c43d3d;'>Потрачено {total_spent:.2f} "
+                f"из {expenses_limit:.2f}</span>"
+            )
+        else:
+            indicator = f"Потрачено {total_spent:.2f} из {expenses_limit:.2f}"
+        st.markdown(indicator, unsafe_allow_html=True)
 
     st.subheader("Добавить новый расход")
     with st.form("Добавить новый расход"):
@@ -125,12 +230,17 @@ with main_tab:
         submit_expense = st.form_submit_button("Сохранить расход")
 
     if submit_expense:
+        expense_month_number = pd.Timestamp(expense_date).month
+        expense_month = MONTH_NAMES[expense_month_number - 1]
+        expense_year = pd.Timestamp(expense_date).year
         new_expense = pd.DataFrame(
             [
                 {
                     "date": expense_date,
                     "amount": expense_amount,
                     "category": expense_category,
+                    "month": expense_month,
+                    "year": expense_year,
                 }
             ]
         )
@@ -151,7 +261,28 @@ with main_tab:
 
 with history_tab:
     st.subheader("История расходов")
-    st.dataframe(expenses_df, use_container_width=True)
+    if expenses_df.empty:
+        st.info("Добавьте расходы, чтобы увидеть историю.")
+    else:
+        expenses_view = expenses_df.copy()
+        expenses_view["date"] = pd.to_datetime(expenses_view["date"])
+        expenses_view["month"] = expenses_view["month"].fillna(
+            expenses_view["date"].dt.month.apply(lambda month: MONTH_NAMES[month - 1])
+        )
+        expenses_view["year"] = expenses_view["year"].fillna(
+            expenses_view["date"].dt.year
+        )
+        expenses_view = expenses_view.sort_values(["year", "date"], ascending=False)
+        month_groups = (
+            expenses_view.groupby(["year", "month"], sort=False)
+        )
+        for (year, month), group in month_groups:
+            st.subheader(f"{month} {int(year)}")
+            st.dataframe(
+                group[["date", "amount", "category"]],
+                use_container_width=True,
+            )
+            st.divider()
 
 with analytics_tab:
     st.subheader("Аналитика расходов")
