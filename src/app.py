@@ -9,6 +9,7 @@ import json
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+from pandas.errors import EmptyDataError
 
 
 def load_settings(settings_path: Path) -> Dict[str, int]:
@@ -25,18 +26,26 @@ def load_settings(settings_path: Path) -> Dict[str, int]:
     else:
         try:
             raw_data = json.loads(settings_path.read_text(encoding="utf-8"))
+            allocations = raw_data.get("allocations")
+            if allocations is None:
+                needs_save = True
+                allocations = raw_data
+            if not isinstance(allocations, dict):
+                raise TypeError("allocations must be a dict")
             settings = {
                 "expenses_percent": int(
-                    raw_data.get("expenses_percent", defaults["expenses_percent"])
+                    allocations.get("expenses_percent", defaults["expenses_percent"])
                 ),
                 "investments_percent": int(
-                    raw_data.get("investments_percent", defaults["investments_percent"])
+                    allocations.get(
+                        "investments_percent", defaults["investments_percent"]
+                    )
                 ),
                 "savings_percent": int(
-                    raw_data.get("savings_percent", defaults["savings_percent"])
+                    allocations.get("savings_percent", defaults["savings_percent"])
                 ),
             }
-        except (json.JSONDecodeError, TypeError, ValueError):
+        except (json.JSONDecodeError, TypeError, ValueError, AttributeError):
             settings = defaults.copy()
             needs_save = True
     if sum(settings.values()) != 100:
@@ -50,7 +59,7 @@ def load_settings(settings_path: Path) -> Dict[str, int]:
 def save_settings(settings_path: Path, settings: Dict[str, int]) -> None:
     """Persist budget settings to disk."""
     settings_path.write_text(
-        json.dumps(settings, ensure_ascii=False, indent=2),
+        json.dumps({"allocations": settings}, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
 
@@ -167,13 +176,21 @@ main_tab, history_tab, analytics_tab, goals_tab, income_tab = st.tabs(
 expenses_file = Path(__file__).parent / "expenses.csv"
 goals_file = Path(__file__).parent / "goals.csv"
 income_file = Path(__file__).parent / "income.csv"
+base_columns = ["date", "amount", "category", "month_number"]
 if expenses_file.exists():
-    expenses_df = pd.read_csv(expenses_file)
+    try:
+        expenses_df = pd.read_csv(expenses_file)
+    except EmptyDataError:
+        expenses_df = pd.DataFrame(columns=base_columns)
 else:
-    expenses_df = pd.DataFrame(columns=["date", "amount", "category"])
+    expenses_df = pd.DataFrame(columns=base_columns)
 
-if not expenses_df.empty:
-    expenses_df["date"] = pd.to_datetime(expenses_df["date"])
+if expenses_df.empty:
+    expenses_df = pd.DataFrame(columns=base_columns)
+else:
+    expenses_df["date"] = pd.to_datetime(expenses_df["date"], errors="coerce")
+    expenses_df = expenses_df.dropna(subset=["date"])
+    expenses_df["month_number"] = expenses_df["date"].dt.month
     if "month" not in expenses_df.columns:
         expenses_df["month"] = expenses_df["date"].dt.month.apply(
             lambda month: MONTH_NAMES[month - 1]
@@ -188,10 +205,43 @@ else:
     goals_df.to_csv(goals_file, index=False)
 
 if income_file.exists():
-    income_df = pd.read_csv(income_file)
+    try:
+        income_df = pd.read_csv(income_file)
+    except EmptyDataError:
+        income_df = pd.DataFrame(columns=base_columns)
 else:
-    income_df = pd.DataFrame(columns=["month", "year", "amount", "category"])
+    income_df = pd.DataFrame(columns=base_columns)
     income_df.to_csv(income_file, index=False)
+
+if income_df.empty:
+    income_df = pd.DataFrame(columns=base_columns)
+else:
+    if "date" not in income_df.columns:
+        if "month" in income_df.columns and "year" in income_df.columns:
+            month_map = {name: idx + 1 for idx, name in enumerate(MONTH_NAMES)}
+            month_series = income_df["month"].map(month_map)
+            month_series = month_series.fillna(
+                pd.to_numeric(income_df["month"], errors="coerce")
+            )
+            income_df["date"] = pd.to_datetime(
+                {
+                    "year": pd.to_numeric(income_df["year"], errors="coerce"),
+                    "month": month_series,
+                    "day": 1,
+                },
+                errors="coerce",
+            )
+        else:
+            income_df["date"] = pd.NaT
+    income_df["date"] = pd.to_datetime(income_df["date"], errors="coerce")
+    income_df = income_df.dropna(subset=["date"])
+    income_df["month_number"] = income_df["date"].dt.month
+    if "month" not in income_df.columns:
+        income_df["month"] = income_df["month_number"].apply(
+            lambda month: MONTH_NAMES[month - 1]
+        )
+    if "year" not in income_df.columns:
+        income_df["year"] = income_df["date"].dt.year
 
 
 def update_settings_from_state() -> None:
@@ -312,6 +362,7 @@ with main_tab:
                     "date": expense_date,
                     "amount": expense_amount,
                     "category": expense_category,
+                    "month_number": expense_month_number,
                     "month": expense_month,
                     "year": expense_year,
                 }
@@ -388,22 +439,21 @@ with analytics_tab:
     month_lookup = {name: idx + 1 for idx, name in enumerate(MONTH_NAMES)}
     income_view = income_df.copy()
     if not income_view.empty:
-        income_view["month_number"] = income_view["month"].map(month_lookup)
+        if "month_number" not in income_view.columns:
+            income_view["month_number"] = income_view["month"].map(month_lookup)
         income_view["year"] = income_view["year"].astype(int)
         income_view = income_view.loc[
             income_view["category"].isin(INCOME_LEGEND_CATEGORIES)
         ]
 
-    if expenses_df.empty or "date" not in expenses_df.columns:
-        expenses_view = pd.DataFrame(
-            columns=["date", "amount", "category", "month_number"]
-        )
+    if expenses_df.empty:
+        expenses_view = pd.DataFrame(columns=base_columns)
     else:
         expenses_view = expenses_df.copy()
-        expenses_view["date"] = pd.to_datetime(expenses_view["date"], errors="coerce")
-        expenses_view = expenses_view.dropna(subset=["date"])
-        expenses_view["month_number"] = expenses_view["date"].dt.month
-        expenses_view["year"] = expenses_view["date"].dt.year
+        if "month_number" not in expenses_view.columns:
+            expenses_view["month_number"] = expenses_view["date"].dt.month
+        if "year" not in expenses_view.columns:
+            expenses_view["year"] = expenses_view["date"].dt.year
 
     income_summary = (
         income_view.groupby(["year", "month_number"], as_index=False)["amount"].sum()
@@ -447,7 +497,7 @@ with analytics_tab:
         )
         income_by_category = income_by_category.sort_values(["year", "month_number"])
         st.markdown(
-            "<div class='chart-title'>Учет доходов</div>",
+            "<div class='chart-title'>Доходы семьи</div>",
             unsafe_allow_html=True,
         )
         income_chart = px.line(
@@ -468,7 +518,7 @@ with analytics_tab:
     if not expenses_view.empty:
         expenses_summary = expenses_view.groupby("category", as_index=False)["amount"].sum()
         st.markdown(
-            "<div class='chart-title'>Учет расходов за месяц</div>",
+            "<div class='chart-title'>Расходы текущего месяца</div>",
             unsafe_allow_html=True,
         )
         pie_chart = px.pie(
@@ -481,35 +531,39 @@ with analytics_tab:
         pie_chart.update_traces(textposition="inside", textinfo="percent+label")
         pie_chart.update_layout(margin=dict(t=10, b=10, l=10, r=10))
         st.plotly_chart(pie_chart, use_container_width=True)
-
-        latest_year = int(expenses_view["date"].dt.year.max())
-        yearly_expenses = (
-            expenses_view.loc[expenses_view["date"].dt.year == latest_year]
-            .groupby(expenses_view["date"].dt.month, as_index=False)["amount"]
-            .sum()
-            .rename(columns={"date": "month_number", "amount": "total"})
-        )
-        all_months = pd.DataFrame({"month_number": range(1, 13)})
-        yearly_expenses = all_months.merge(yearly_expenses, on="month_number", how="left")
-        yearly_expenses["total"] = yearly_expenses["total"].fillna(0)
-        yearly_expenses["month"] = yearly_expenses["month_number"].apply(
-            lambda month: MONTH_NAMES[int(month) - 1]
-        )
-        st.markdown(
-            "<div class='chart-title'>Динамика за год</div>",
-            unsafe_allow_html=True,
-        )
-        yearly_chart = px.bar(
-            yearly_expenses,
-            x="month",
-            y="total",
-            color_discrete_sequence=[CHART_COLORS[0]],
-            labels={"total": "Сумма", "month": "Месяц"},
-        )
-        yearly_chart.update_layout(margin=dict(t=10, b=10, l=10, r=10))
-        st.plotly_chart(yearly_chart, use_container_width=True)
     else:
         st.info("Данных пока нет")
+
+    if not expenses_view.empty:
+        latest_year = int(expenses_view["year"].max())
+        yearly_source = expenses_view.loc[expenses_view["year"] == latest_year]
+        yearly_expenses = (
+            yearly_source.groupby("month_number", as_index=False)["amount"]
+            .sum()
+            .rename(columns={"amount": "total"})
+        )
+    else:
+        yearly_expenses = pd.DataFrame(columns=["month_number", "total"])
+
+    all_months = pd.DataFrame({"month_number": range(1, 13)})
+    yearly_expenses = all_months.merge(yearly_expenses, on="month_number", how="left")
+    yearly_expenses["total"] = yearly_expenses["total"].fillna(0)
+    yearly_expenses["month"] = yearly_expenses["month_number"].apply(
+        lambda month: MONTH_NAMES[int(month) - 1]
+    )
+    st.markdown(
+        "<div class='chart-title'>Динамика за год</div>",
+        unsafe_allow_html=True,
+    )
+    yearly_chart = px.bar(
+        yearly_expenses,
+        x="month",
+        y="total",
+        color_discrete_sequence=[CHART_COLORS[0]],
+        labels={"total": "Сумма", "month": "Месяц"},
+    )
+    yearly_chart.update_layout(margin=dict(t=10, b=10, l=10, r=10))
+    st.plotly_chart(yearly_chart, use_container_width=True)
 
 with goals_tab:
     st.subheader("Цели")
@@ -610,9 +664,17 @@ with income_tab:
         submit_income = st.form_submit_button("Сохранить доход")
 
     if submit_income:
+        selected_month_number = MONTH_NAMES.index(income_month) + 1
+        income_date = pd.Timestamp(
+            year=int(income_year),
+            month=selected_month_number,
+            day=1,
+        )
         new_income = pd.DataFrame(
             [
                 {
+                    "date": income_date,
+                    "month_number": selected_month_number,
                     "month": income_month,
                     "year": int(income_year),
                     "amount": income_amount,
