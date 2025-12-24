@@ -40,6 +40,13 @@ st.markdown(
             padding: 16px;
             box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
         }
+        .chart-title {
+            text-align: center;
+            font-size: 28px;
+            font-weight: 600;
+            margin: 12px 0 16px;
+            color: #3b3b3f;
+        }
     </style>
     """,
     unsafe_allow_html=True,
@@ -58,6 +65,15 @@ MONTH_NAMES = [
     "Октябрь",
     "Ноябрь",
     "Декабрь",
+]
+
+CHART_COLORS = [
+    "#5f7c8a",
+    "#8aa39b",
+    "#b8bfa3",
+    "#d4c8b8",
+    "#c18b7a",
+    "#8c6f6a",
 ]
 
 
@@ -130,6 +146,8 @@ income_file = Path(__file__).parent / "income.csv"
 settings_file = Path(__file__).parent / "settings.json"
 
 default_budget_settings = load_settings(settings_file)
+if not settings_file.exists():
+    save_settings(settings_file, default_budget_settings)
 if expenses_file.exists():
     expenses_df = pd.read_csv(expenses_file)
 else:
@@ -343,14 +361,14 @@ with analytics_tab:
     if not income_df.empty or not expenses_df.empty:
         month_lookup = {name: idx + 1 for idx, name in enumerate(MONTH_NAMES)}
         income_view = income_df.copy()
-        income_view["month_number"] = income_view["month"].map(month_lookup)
-        income_view["year"] = income_view["year"].astype(int)
+        if not income_view.empty:
+            income_view["month_number"] = income_view["month"].map(month_lookup)
+            income_view["year"] = income_view["year"].astype(int)
         income_summary = (
             income_view.groupby(["year", "month_number"], as_index=False)["amount"].sum()
             if not income_view.empty
             else pd.DataFrame(columns=["year", "month_number", "amount"])
-        )
-        income_summary = income_summary.rename(columns={"amount": "income"})
+        ).rename(columns={"amount": "income"})
 
         expenses_view = expenses_df.copy()
         if not expenses_view.empty:
@@ -372,21 +390,7 @@ with analytics_tab:
         ).fillna(0)
         if not monthly_summary.empty:
             monthly_summary = monthly_summary.dropna(subset=["month_number"])
-            monthly_summary["month"] = monthly_summary["month_number"].apply(
-                lambda month: MONTH_NAMES[int(month) - 1]
-            )
             monthly_summary = monthly_summary.sort_values(["year", "month_number"])
-            line_chart = px.line(
-                monthly_summary,
-                x="month",
-                y=["income", "expenses"],
-                color_discrete_sequence=["#5c7c89", "#c06c5d"],
-                markers=True,
-                labels={"value": "Сумма", "month": "Месяц", "variable": "Показатель"},
-            )
-            line_chart.update_layout(margin=dict(t=10, b=10, l=10, r=10))
-            st.plotly_chart(line_chart, use_container_width=True)
-
             latest_period = monthly_summary.iloc[-1]
             expense_limit = latest_period["income"] * expenses_percent / 100
             limit_left = expense_limit - latest_period["expenses"]
@@ -396,17 +400,80 @@ with analytics_tab:
                 help="Доходы * %Расходов - Реальные траты",
             )
 
+        if not income_view.empty:
+            income_by_category = (
+                income_view.groupby(
+                    ["year", "month_number", "category"], as_index=False
+                )["amount"].sum()
+            )
+            income_by_category["month_label"] = income_by_category.apply(
+                lambda row: f"{MONTH_NAMES[int(row['month_number']) - 1]} {int(row['year'])}",
+                axis=1,
+            )
+            income_by_category = income_by_category.sort_values(
+                ["year", "month_number"]
+            )
+            st.markdown(
+                "<div class='chart-title'>Учет доходов</div>",
+                unsafe_allow_html=True,
+            )
+            income_chart = px.line(
+                income_by_category,
+                x="month_label",
+                y="amount",
+                color="category",
+                markers=True,
+                color_discrete_sequence=CHART_COLORS,
+                labels={"amount": "Сумма", "month_label": "Месяц", "category": "Категория"},
+            )
+            income_chart.update_layout(margin=dict(t=10, b=10, l=10, r=10))
+            st.plotly_chart(income_chart, use_container_width=True)
+
     if not expenses_df.empty:
         expenses_summary = expenses_df.groupby("category", as_index=False)["amount"].sum()
+        st.markdown(
+            "<div class='chart-title'>Учет расходов за месяц</div>",
+            unsafe_allow_html=True,
+        )
         pie_chart = px.pie(
             expenses_summary,
             values="amount",
             names="category",
             hole=0.35,
+            color_discrete_sequence=CHART_COLORS,
         )
         pie_chart.update_traces(textposition="inside", textinfo="percent+label")
         pie_chart.update_layout(margin=dict(t=10, b=10, l=10, r=10))
         st.plotly_chart(pie_chart, use_container_width=True)
+
+        expenses_view = expenses_df.copy()
+        expenses_view["date"] = pd.to_datetime(expenses_view["date"])
+        latest_year = int(expenses_view["date"].dt.year.max())
+        yearly_expenses = (
+            expenses_view.loc[expenses_view["date"].dt.year == latest_year]
+            .groupby(expenses_view["date"].dt.month, as_index=False)["amount"]
+            .sum()
+            .rename(columns={"date": "month_number", "amount": "total"})
+        )
+        all_months = pd.DataFrame({"month_number": range(1, 13)})
+        yearly_expenses = all_months.merge(yearly_expenses, on="month_number", how="left")
+        yearly_expenses["total"] = yearly_expenses["total"].fillna(0)
+        yearly_expenses["month"] = yearly_expenses["month_number"].apply(
+            lambda month: MONTH_NAMES[int(month) - 1]
+        )
+        st.markdown(
+            "<div class='chart-title'>Динамика расходов за год</div>",
+            unsafe_allow_html=True,
+        )
+        yearly_chart = px.bar(
+            yearly_expenses,
+            x="month",
+            y="total",
+            color_discrete_sequence=[CHART_COLORS[0]],
+            labels={"total": "Сумма", "month": "Месяц"},
+        )
+        yearly_chart.update_layout(margin=dict(t=10, b=10, l=10, r=10))
+        st.plotly_chart(yearly_chart, use_container_width=True)
     else:
         st.info("Добавьте расходы, чтобы увидеть аналитику по категориям.")
 
@@ -528,4 +595,20 @@ with income_tab:
         st.info("Добавьте доходы, чтобы видеть план.")
     else:
         st.markdown("#### План доходов")
-        st.dataframe(income_df, use_container_width=True)
+        income_view = income_df.copy()
+        income_view["month_number"] = income_view["month"].map(
+            {name: idx + 1 for idx, name in enumerate(MONTH_NAMES)}
+        )
+        income_view["year"] = income_view["year"].astype(int)
+        income_view = income_view.sort_values(
+            ["year", "month_number"], ascending=False
+        )
+        income_groups = income_view.groupby(["year", "month"], sort=False)
+        for (year, month), group in income_groups:
+            st.subheader(f"{month} {int(year)}")
+            st.dataframe(
+                group[["amount", "category"]],
+                use_container_width=True,
+                hide_index=True,
+            )
+            st.divider()
