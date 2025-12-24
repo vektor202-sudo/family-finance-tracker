@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Dict
 
+import pandas as pd
 import streamlit as st
 
 
@@ -57,6 +59,7 @@ if st.button("Распределить бюджет"):
     st.caption("Данные рассчитаны на основе вашей структуры в docs/data_structure.md")
 
 st.subheader("Добавить новый расход")
+expenses_file = Path(__file__).parent / "expenses.csv"
 with st.form("Добавить новый расход"):
     expense_date = st.date_input("Дата")
     expense_amount = st.number_input(
@@ -72,7 +75,32 @@ with st.form("Добавить новый расход"):
     submit_expense = st.form_submit_button("Сохранить расход")
 
 if submit_expense:
+    new_expense = pd.DataFrame(
+        [
+            {
+                "date": expense_date,
+                "amount": expense_amount,
+                "category": expense_category,
+            }
+        ]
+    )
+    if expenses_file.exists():
+        existing_expenses = pd.read_csv(expenses_file)
+        updated_expenses = pd.concat(
+            [existing_expenses, new_expense],
+            ignore_index=True,
+        )
+    else:
+        updated_expenses = new_expense
+    updated_expenses.to_csv(expenses_file, index=False)
     st.success("Расход сохранен!")
     st.write("Дата:", expense_date)
     st.write("Сумма:", f"{expense_amount:.2f}")
     st.write("Категория:", expense_category)
+
+st.subheader("Сохраненные расходы")
+if expenses_file.exists():
+    expenses_df = pd.read_csv(expenses_file)
+else:
+    expenses_df = pd.DataFrame(columns=["date", "amount", "category"])
+st.dataframe(expenses_df)
