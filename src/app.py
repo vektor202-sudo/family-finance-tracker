@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Dict
 
+import streamlit as st
+
 
 def allocate_income(total_income: float) -> Dict[str, float]:
     """Distribute total income into expenses, savings, and investments.
@@ -27,11 +29,29 @@ def allocate_income(total_income: float) -> Dict[str, float]:
     }
 
 
-if __name__ == "__main__":
-    total = 100000
-    distribution = allocate_income(total)
-    print(f"Общий доход: {total}")
-    print("Распределение:")
-    print(f"  Расходы (70%): {distribution['expenses']}")
-    print(f"  Накопления (10%): {distribution['savings']}")
-    print(f"  Инвестиции (20%): {distribution['investments']}")
+st.title("Семейный финансовый трекер")
+
+total_income = st.number_input(
+    "Общая сумма дохода",
+    min_value=0.0,
+    step=1000.0,
+    format="%.2f",
+)
+
+if st.button("Распределить бюджет"):
+    distribution = allocate_income(total_income)
+    expenses_col, savings_col, investments_col = st.columns(3)
+
+    with expenses_col:
+        st.subheader("Расходы 70%")
+        st.write(f"{distribution['expenses']:.2f}")
+
+    with savings_col:
+        st.subheader("Накопления 10%")
+        st.write(f"{distribution['savings']:.2f}")
+
+    with investments_col:
+        st.subheader("Инвестиции 20%")
+        st.write(f"{distribution['investments']:.2f}")
+
+    st.caption("Данные рассчитаны на основе вашей структуры в docs/data_structure.md")
