@@ -76,6 +76,8 @@ CHART_COLORS = [
     "#8c6f6a",
 ]
 
+INCOME_LEGEND_CATEGORIES = ["Зарплата Мужа", "Зарплата Жены", "Инвестиции"]
+
 
 def allocate_income(
     total_income: float,
@@ -111,19 +113,33 @@ def load_settings(settings_path: Path) -> Dict[str, int]:
         "investments_percent": 20,
         "savings_percent": 10,
     }
+    settings = defaults.copy()
+    needs_save = False
     if not settings_path.exists():
-        return defaults
-    try:
-        raw_data = json.loads(settings_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return defaults
-    return {
-        "expenses_percent": int(raw_data.get("expenses_percent", defaults["expenses_percent"])),
-        "investments_percent": int(
-            raw_data.get("investments_percent", defaults["investments_percent"])
-        ),
-        "savings_percent": int(raw_data.get("savings_percent", defaults["savings_percent"])),
-    }
+        needs_save = True
+    else:
+        try:
+            raw_data = json.loads(settings_path.read_text(encoding="utf-8"))
+            settings = {
+                "expenses_percent": int(
+                    raw_data.get("expenses_percent", defaults["expenses_percent"])
+                ),
+                "investments_percent": int(
+                    raw_data.get("investments_percent", defaults["investments_percent"])
+                ),
+                "savings_percent": int(
+                    raw_data.get("savings_percent", defaults["savings_percent"])
+                ),
+            }
+        except (json.JSONDecodeError, TypeError, ValueError):
+            settings = defaults.copy()
+            needs_save = True
+    if sum(settings.values()) != 100:
+        settings = defaults.copy()
+        needs_save = True
+    if needs_save:
+        save_settings(settings_path, settings)
+    return settings
 
 
 def save_settings(settings_path: Path, settings: Dict[str, int]) -> None:
@@ -146,8 +162,6 @@ income_file = Path(__file__).parent / "income.csv"
 settings_file = Path(__file__).parent / "settings.json"
 
 default_budget_settings = load_settings(settings_file)
-if not settings_file.exists():
-    save_settings(settings_file, default_budget_settings)
 if expenses_file.exists():
     expenses_df = pd.read_csv(expenses_file)
 else:
@@ -312,6 +326,14 @@ with main_tab:
         st.write("Дата:", expense_date)
         st.write("Сумма:", f"{expense_amount:.2f}")
         st.write("Категория:", expense_category)
+    if st.button("Отменить последнюю запись", key="undo_last_expense"):
+        if expenses_df.empty:
+            st.info("Нет расходов для удаления.")
+        else:
+            updated_expenses = expenses_df.iloc[:-1].copy()
+            updated_expenses.to_csv(expenses_file, index=False)
+            expenses_df = updated_expenses
+            st.success("Последняя запись о расходе удалена.")
 
 with history_tab:
     st.subheader("История расходов")
@@ -358,12 +380,17 @@ with history_tab:
 
 with analytics_tab:
     st.subheader("Статистика")
+    if income_df.empty and expenses_df.empty:
+        st.info("Нет данных для отображения графиков")
     if not income_df.empty or not expenses_df.empty:
         month_lookup = {name: idx + 1 for idx, name in enumerate(MONTH_NAMES)}
         income_view = income_df.copy()
         if not income_view.empty:
             income_view["month_number"] = income_view["month"].map(month_lookup)
             income_view["year"] = income_view["year"].astype(int)
+            income_view = income_view.loc[
+                income_view["category"].isin(INCOME_LEGEND_CATEGORIES)
+            ]
         income_summary = (
             income_view.groupby(["year", "month_number"], as_index=False)["amount"].sum()
             if not income_view.empty
@@ -425,6 +452,7 @@ with analytics_tab:
                 markers=True,
                 color_discrete_sequence=CHART_COLORS,
                 labels={"amount": "Сумма", "month_label": "Месяц", "category": "Категория"},
+                category_orders={"category": INCOME_LEGEND_CATEGORIES},
             )
             income_chart.update_layout(margin=dict(t=10, b=10, l=10, r=10))
             st.plotly_chart(income_chart, use_container_width=True)
@@ -475,7 +503,7 @@ with analytics_tab:
         yearly_chart.update_layout(margin=dict(t=10, b=10, l=10, r=10))
         st.plotly_chart(yearly_chart, use_container_width=True)
     else:
-        st.info("Добавьте расходы, чтобы увидеть аналитику по категориям.")
+        st.info("Нет данных для отображения графиков")
 
 with goals_tab:
     st.subheader("Цели")
@@ -590,6 +618,15 @@ with income_tab:
         updated_income.to_csv(income_file, index=False)
         income_df = updated_income
         st.success("Доход сохранен!")
+
+    if st.button("Отменить последнюю запись", key="undo_last_income"):
+        if income_df.empty:
+            st.info("Нет доходов для удаления.")
+        else:
+            updated_income = income_df.iloc[:-1].copy()
+            updated_income.to_csv(income_file, index=False)
+            income_df = updated_income
+            st.success("Последняя запись о доходе удалена.")
 
     if income_df.empty:
         st.info("Добавьте доходы, чтобы видеть план.")
