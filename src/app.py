@@ -12,12 +12,13 @@ import streamlit as st
 from pandas.errors import EmptyDataError
 
 
-def load_settings(settings_path: Path) -> tuple[Dict[str, int], bool]:
+def load_settings(settings_path: Path) -> tuple[Dict[str, int | float], bool]:
     """Load saved budget settings or return defaults."""
     defaults = {
         "expenses_percent": 70,
         "investments_percent": 20,
         "savings_percent": 10,
+        "total_income_plan": 0.0,
     }
     settings = defaults.copy()
     needs_save = False
@@ -44,11 +45,19 @@ def load_settings(settings_path: Path) -> tuple[Dict[str, int], bool]:
                 "savings_percent": int(
                     allocations.get("savings_percent", defaults["savings_percent"])
                 ),
+                "total_income_plan": float(
+                    raw_data.get("total_income_plan", defaults["total_income_plan"])
+                ),
             }
         except (json.JSONDecodeError, TypeError, ValueError, AttributeError):
             settings = defaults.copy()
             needs_save = True
-    if sum(settings.values()) != 100:
+    if (
+        settings["expenses_percent"]
+        + settings["investments_percent"]
+        + settings["savings_percent"]
+        != 100
+    ):
         settings = defaults.copy()
         needs_save = True
     return settings, needs_save
@@ -61,8 +70,13 @@ def save_settings() -> None:
         "investments_percent": int(st.session_state.get("investments_percent", 20)),
         "savings_percent": int(st.session_state.get("savings_percent", 10)),
     }
+    total_income_plan = float(st.session_state.get("total_income_plan", 0.0))
     settings_file.write_text(
-        json.dumps({"allocations": settings}, ensure_ascii=False, indent=2),
+        json.dumps(
+            {"allocations": settings, "total_income_plan": total_income_plan},
+            ensure_ascii=False,
+            indent=2,
+        ),
         encoding="utf-8",
     )
 
@@ -259,6 +273,8 @@ with main_tab:
         min_value=0.0,
         step=1000.0,
         format="%.2f",
+        key="total_income_plan",
+        on_change=save_settings,
     )
     st.markdown("#### Проценты распределения")
     expenses_percent = st.slider(
@@ -288,42 +304,48 @@ with main_tab:
             f"Сумма процентов должна быть 100%. Сейчас: {total_percent}%."
         )
 
-    if st.button("Распределить бюджет"):
-        if total_percent != 100:
-            st.error("Исправьте проценты, чтобы они суммировались до 100%.")
-            st.stop()
+    if total_percent == 100 and total_income > 0:
         distribution = allocate_income(
             total_income,
             expenses_percent,
             savings_percent,
             investments_percent,
         )
-        save_settings()
         expenses_col, savings_col, investments_col = st.columns(3)
 
         with expenses_col:
-            st.subheader(f"Расходы {expenses_percent}%")
-            st.write(f"{distribution['expenses']:.2f}")
+            st.metric("Расходы", f"{distribution['expenses']:.2f} ₽")
+            st.caption(f"{expenses_percent}%")
 
         with savings_col:
-            st.subheader(f"Накопления {savings_percent}%")
-            st.write(f"{distribution['savings']:.2f}")
+            st.metric("Накопления", f"{distribution['savings']:.2f} ₽")
+            st.caption(f"{savings_percent}%")
 
         with investments_col:
-            st.subheader(f"Инвестиции {investments_percent}%")
-            st.write(f"{distribution['investments']:.2f}")
+            st.metric("Инвестиции", f"{distribution['investments']:.2f} ₽")
+            st.caption(f"{investments_percent}%")
 
         st.caption("Данные рассчитаны на основе вашей структуры в docs/data_structure.md")
-        total_spent = float(expenses_df["amount"].sum()) if not expenses_df.empty else 0.0
-        expenses_limit = distribution["expenses"]
-        if total_spent > expenses_limit:
-            indicator = (
-                f"<span style='color:#c43d3d;'>Потрачено {total_spent:.2f} "
-                f"из {expenses_limit:.2f}</span>"
-            )
+        if not expenses_df.empty:
+            current_month = pd.Timestamp.today().month
+            current_year = pd.Timestamp.today().year
+            current_month_expenses = expenses_df.loc[
+                (expenses_df["month_number"] == current_month)
+                & (expenses_df["year"] == current_year),
+                "amount",
+            ]
+            spent_amount = float(current_month_expenses.sum())
         else:
-            indicator = f"Потрачено {total_spent:.2f} из {expenses_limit:.2f}"
-        st.markdown(indicator, unsafe_allow_html=True)
+            spent_amount = 0.0
+        expenses_limit = distribution["expenses"]
+        remaining_amount = expenses_limit - spent_amount
+        st.markdown(
+            "Выделено на расходы в этом месяце: "
+            f"{expenses_limit:.2f} руб. Потрачено по факту: "
+            f"{spent_amount:.2f} руб. Остаток: {remaining_amount:.2f} руб."
+        )
+    elif total_income > 0 and total_percent != 100:
+        st.error("Исправьте проценты, чтобы они суммировались до 100%.")
 
     st.subheader("Добавить новый расход")
     with st.form("Добавить новый расход"):
@@ -401,10 +423,8 @@ with history_tab:
             expenses_view["date"].dt.year
         )
         expenses_view = expenses_view.sort_values(["year", "date"], ascending=False)
-        month_groups = (
-            expenses_view.groupby(["year", "month"], sort=False)
-        )
-        for (year, month), group in month_groups:
+        month_groups = list(expenses_view.groupby(["year", "month"], sort=False))
+        for index, ((year, month), group) in enumerate(month_groups):
             st.markdown(f"### {month} {int(year)}")
             editable_group = group[["date", "amount", "category"]].copy()
             editable_group["Удалить"] = False
@@ -428,7 +448,8 @@ with history_tab:
                 merged_remaining.to_csv(expenses_file, index=False)
                 expenses_df = merged_remaining
                 st.success("Выбранные расходы удалены.")
-            st.divider()
+            if index < len(month_groups) - 1:
+                st.divider()
 
 with analytics_tab:
     st.subheader("Статистика")
@@ -704,12 +725,13 @@ with income_tab:
         income_view = income_view.sort_values(
             ["year", "month_number"], ascending=False
         )
-        income_groups = income_view.groupby(["year", "month"], sort=False)
-        for (year, month), group in income_groups:
+        income_groups = list(income_view.groupby(["year", "month"], sort=False))
+        for index, ((year, month), group) in enumerate(income_groups):
             st.markdown(f"### {month} {int(year)}")
             st.dataframe(
                 group[["amount", "category"]],
                 use_container_width=True,
                 hide_index=True,
             )
-            st.divider()
+            if index < len(income_groups) - 1:
+                st.divider()
