@@ -12,7 +12,7 @@ import streamlit as st
 from pandas.errors import EmptyDataError
 
 
-def load_settings(settings_path: Path) -> Dict[str, int]:
+def load_settings(settings_path: Path) -> tuple[Dict[str, int], bool]:
     """Load saved budget settings or return defaults."""
     defaults = {
         "expenses_percent": 70,
@@ -51,27 +51,32 @@ def load_settings(settings_path: Path) -> Dict[str, int]:
     if sum(settings.values()) != 100:
         settings = defaults.copy()
         needs_save = True
-    if needs_save:
-        save_settings(settings_path, settings)
-    return settings
+    return settings, needs_save
 
 
-def save_settings(settings_path: Path, settings: Dict[str, int]) -> None:
+def save_settings() -> None:
     """Persist budget settings to disk."""
-    settings_path.write_text(
+    settings = {
+        "expenses_percent": int(st.session_state.get("expenses_percent", 70)),
+        "investments_percent": int(st.session_state.get("investments_percent", 20)),
+        "savings_percent": int(st.session_state.get("savings_percent", 10)),
+    }
+    settings_file.write_text(
         json.dumps({"allocations": settings}, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
 
 
 settings_file = Path(__file__).parent / "settings.json"
-default_budget_settings = load_settings(settings_file)
+default_budget_settings, settings_need_save = load_settings(settings_file)
 
 st.set_page_config(page_title="Семейный бюджет", layout="wide")
 
 for key, value in default_budget_settings.items():
     if key not in st.session_state:
         st.session_state[key] = value
+if settings_need_save:
+    save_settings()
 
 st.markdown(
     """
@@ -247,16 +252,6 @@ else:
         income_df["year"] = income_df["date"].dt.year
 
 
-def update_settings() -> None:
-    save_settings(
-        settings_file,
-        {
-            "expenses_percent": int(st.session_state.get("expenses_percent", 70)),
-            "investments_percent": int(st.session_state.get("investments_percent", 20)),
-            "savings_percent": int(st.session_state.get("savings_percent", 10)),
-        },
-    )
-
 with main_tab:
     st.subheader("Планирование бюджета")
     total_income = st.number_input(
@@ -270,25 +265,22 @@ with main_tab:
         "Расходы (%)",
         min_value=0,
         max_value=100,
-        value=int(st.session_state["expenses_percent"]),
         key="expenses_percent",
-        on_change=update_settings,
+        on_change=save_settings,
     )
     investments_percent = st.slider(
         "Инвестиции (%)",
         min_value=0,
         max_value=100,
-        value=int(st.session_state["investments_percent"]),
         key="investments_percent",
-        on_change=update_settings,
+        on_change=save_settings,
     )
     savings_percent = st.slider(
         "Накопления (%)",
         min_value=0,
         max_value=100,
-        value=int(st.session_state["savings_percent"]),
         key="savings_percent",
-        on_change=update_settings,
+        on_change=save_settings,
     )
     total_percent = expenses_percent + investments_percent + savings_percent
     if total_percent != 100:
@@ -306,14 +298,7 @@ with main_tab:
             savings_percent,
             investments_percent,
         )
-        save_settings(
-            settings_file,
-            {
-                "expenses_percent": int(expenses_percent),
-                "investments_percent": int(investments_percent),
-                "savings_percent": int(savings_percent),
-            },
-        )
+        save_settings()
         expenses_col, savings_col, investments_col = st.columns(3)
 
         with expenses_col:
